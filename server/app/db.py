@@ -6,6 +6,7 @@ All of the server's SQL lives in this module.
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
+from app.models import Report
 
 SCHEMA_VERSION = 1
 MIN_SQLITE_VERSION = (3, 37, 0)  # first version with STRICT tables
@@ -118,3 +119,44 @@ def to_db_time(dt: datetime) -> str:
 def utc_now() -> str:
     """The current server time in the stored format."""
     return to_db_time(datetime.now(timezone.utc))
+
+def store_report(conn: sqlite3.Connection, report: Report, received_at: str) -> int:
+    """Store one validated report in a single transaction and return its id.
+
+    Registers the agent on its first report and marks it online with last_seen = received_at.
+    """
+    with conn:  # commits if everything succeeds, rolls back if anything raises
+        conn.execute(
+            """
+            INSERT INTO agents (agent_id, status, first_seen, last_seen)
+            VALUES (?, 'online', ?, ?)
+            ON CONFLICT (agent_id) DO UPDATE SET
+                status = 'online',
+                first_seen = COALESCE(agents.first_seen, excluded.first_seen),
+                last_seen = excluded.last_seen
+            """,
+            (report.agent_id, received_at, received_at),
+        )
+        t = report.traffic
+        report_id = conn.execute(
+            """
+            INSERT INTO reports (agent_id, agent_ts, received_at, bytes_in, bytes_out,
+                                 packets_in, packets_out, interval_s)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (report.agent_id, to_db_time(report.timestamp), received_at,
+             t.bytes_in, t.bytes_out, t.packets_in, t.packets_out, t.interval_s),
+        ).lastrowid
+        conn.executemany(
+            "INSERT INTO failed_logins (report_id, user, source_ip, time) VALUES (?, ?, ?, ?)",
+            [(report_id, f.user, str(f.source_ip), to_db_time(f.time)) for f in report.failed_logins],
+        )
+        conn.executemany(
+            """
+            INSERT INTO service_checks (report_id, name, host, port, up, response_ms, error)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            [(report_id, s.name, s.host, s.port, int(s.up), s.response_ms, s.error)
+             for s in report.services],
+        )
+    return report_id
