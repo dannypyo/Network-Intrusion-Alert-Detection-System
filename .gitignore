@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Virtual environments
+venv/
+.venv/
+
+# Local secrets and settings
+.env
+
+# Local SQLite databases (WAL mode adds the -wal and -shm files)
+*.db
+*.db-wal
+*.db-shm
+server/data/
+
+# Editors
+.vscode/
+.idea/
+
+# Windows download markers (WSL)
+*:Zone.Identifier
