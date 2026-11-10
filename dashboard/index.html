@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>NIDS Dashboard - CS 3700</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f4f4f9; color: #333; }
+        h1, h2 { color: #2c3e50; }
+        .card { background: white; padding: 15px; margin-bottom: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 10px; border: 1px solid #ddd; text-align: left; }
+        th { background: #2c3e50; color: white; }
+        .alert-high { background: #ffdddd; }
+    </style>
+</head>
+<body>
+    <h1>Network Intrusion Detection System Dashboard</h1>
+    
+    <div class="card">
+        <h2>Agents Status</h2>
+        <table id="agents-table">
+            <tr><th>Agent ID</th><th>Last Seen</th><th>Status</th></tr>
+        </table>
+    </div>
+
+    <div class="card">
+        <h2>Active Alerts</h2>
+        <table id="alerts-table">
+            <tr><th>Agent ID</th><th>Type</th><th>Severity</th><th>Message</th></tr>
+        </table>
+    </div>
+
+    <script>
+        async function fetchData() {
+            try {
+                // Fetch agents
+                const agentsRes = await fetch('/agents');
+                const agents = await agentsRes.json();
+                const agentsTable = document.getElementById('agents-table');
+                agentsTable.innerHTML = '<tr><th>Agent ID</th><th>Last Seen</th><th>Status</th></tr>';
+                agents.forEach(agent => {
+                    agentsTable.innerHTML += `<tr><td>${agent.agent_id}</td><td>${agent.last_seen}</td><td>${agent.status}</td></tr>`;
+                });
+
+                // Fetch alerts
+                const alertsRes = await fetch('/alerts');
+                const alerts = await alertsRes.json();
+                const alertsTable = document.getElementById('alerts-table');
+                alertsTable.innerHTML = '<tr><th>Agent ID</th><th>Type</th><th>Severity</th><th>Message</th></tr>';
+                alerts.forEach(alert => {
+                    alertsTable.innerHTML += `<tr class="alert-high"><td>${alert.agent_id}</td><td>${alert.type}</td><td>${alert.severity}</td><td>${alert.message}</td></tr>`;
+                });
+            } catch (err) {
+                console.error("Error polling API:", err);
+            }
+        }
+
+        // Poll every 3 seconds
+        setInterval(fetchData, 3000);
+        fetchData();
+    </script>
+</body>
+</html>
