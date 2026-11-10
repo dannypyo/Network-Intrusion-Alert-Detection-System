@@ -22,3 +22,6 @@ server/data/
 
 # Windows download markers (WSL)
 *:Zone.Identifier
+
+# Test environment logs
+env/logs/

@@ -1,6 +1,3 @@
-python
-
-
 import argparse
 import json
 import time
@@ -16,7 +13,7 @@ def main():
     parser = argparse.ArgumentParser(description="Make the target service slow")
     parser.add_argument("--control", default="http://127.0.0.1:9001")
     parser.add_argument("--ms", type=int, default=1500,
-                        help="delay in milliseconds (keep under 5000, the agent's timeout)")
+                        help="delay in milliseconds (keep under 3000; slower counts as down)")
     parser.add_argument("--seconds", type=int, default=30)
     args = parser.parse_args()
 

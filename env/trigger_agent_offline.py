@@ -1,4 +1,3 @@
-python
 """
 Scenario: AGENT_OFFLINE
 

@@ -1,6 +1,3 @@
-python
-
-
 import argparse
 import json
 import time
