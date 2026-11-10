@@ -42,3 +42,4 @@ All settings are optional environment variables.
 | `OFFLINE_THRESHOLD_S` | `30` | Seconds without a report before an agent is offline |
 | `SWEEP_INTERVAL_S` | `5` | How often the server checks for offline agents |
 | `ALERT_EXPIRY_S` | `60` | Seconds without a new signal before an alert resolves |
+| `AGENT_TOKEN` | `dev-token-not-for-deployment` | Shared secret agents send in `X-Agent-Token`. Set your own (16+ characters) before deploying |
