@@ -1,17 +1,18 @@
 from datetime import datetime, timezone
 from typing import List, Dict, Any
 
-# Threshold configurations
+# Rule Thresholds & Cooldowns
 FAILED_LOGIN_THRESHOLD = 5
 FAILED_LOGIN_WINDOW_S = 60
-TRAFFIC_BYTES_THRESHOLD = 1000000  # Example: 1 MB/s
+ALERT_COOLDOWN_S = 60  # Do not repeat the same alert for an IP within 60 seconds
+TRAFFIC_BYTES_THRESHOLD = 1000000  
 RESPONSE_TIME_THRESHOLD_MS = 1000.0
 
 class DetectionEngine:
     def __init__(self):
-        # Keep track of recent failed logins for windowed counting: {ip: [timestamps]}
         self.failed_login_history: Dict[str, List[datetime]] = {}
-        # Track consecutive service failures: {(agent_id, service_name): count}
+        # Track when the last alert was sent for a given (agent_id, ip, alert_type)
+        self.last_alert_times: Dict[tuple, datetime] = {}
         self.service_downtime_counts: Dict[tuple, int] = {}
 
     def evaluate_report(self, report: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -20,36 +21,38 @@ class DetectionEngine:
         timestamp_str = report.get("timestamp")
         report_time = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
 
-        # 1. Check Failed Logins
-        failed_logins = report.get("failed_logins", [])
-        for login in failed_logins:
+        # 1. Brute-force / Failed Logins check with deduplication
+        for login in report.get("failed_logins", []):
             ip = login.get("source_ip")
             if ip:
                 if ip not in self.failed_login_history:
                     self.failed_login_history[ip] = []
                 self.failed_login_history[ip].append(report_time)
                 
-                # Filter timestamps within the 60s window
+                # Keep timestamps within the window
                 self.failed_login_history[ip] = [
                     t for t in self.failed_login_history[ip] 
                     if (report_time - t).total_seconds() <= FAILED_LOGIN_WINDOW_S
                 ]
                 
                 if len(self.failed_login_history[ip]) >= FAILED_LOGIN_THRESHOLD:
-                    alerts.append({
-                        "agent_id": agent_id,
-                        "type": "BRUTE_FORCE_SSH",
-                        "severity": "HIGH",
-                        "message": f"Over {FAILED_LOGIN_THRESHOLD} failed logins from IP {ip} within {FAILED_LOGIN_WINDOW_S}s."
-                    })
+                    alert_key = (agent_id, ip, "BRUTE_FORCE_SSH")
+                    last_alert_time = self.last_alert_times.get(alert_key)
 
-        # 2. Check Traffic Spikes
+                    # Check if cooldown has passed since the last alert
+                    if not last_alert_time or (report_time - last_alert_time).total_seconds() >= ALERT_COOLDOWN_S:
+                        self.last_alert_times[alert_key] = report_time
+                        alerts.append({
+                            "agent_id": agent_id,
+                            "type": "BRUTE_FORCE_SSH",
+                            "severity": "HIGH",
+                            "message": f"Over {FAILED_LOGIN_THRESHOLD} failed logins from IP {ip} within {FAILED_LOGIN_WINDOW_S}s."
+                        })
+
+        # 2. Traffic Spike check
         traffic = report.get("traffic", {})
         interval = traffic.get("interval_s", 10)
-        bytes_in = traffic.get("bytes_in", 0)
-        bytes_out = traffic.get("bytes_out", 0)
-        total_bps = (bytes_in + bytes_out) / interval if interval > 0 else 0
-        
+        total_bps = (traffic.get("bytes_in", 0) + traffic.get("bytes_out", 0)) / interval if interval > 0 else 0
         if total_bps > TRAFFIC_BYTES_THRESHOLD:
             alerts.append({
                 "agent_id": agent_id,
@@ -58,12 +61,10 @@ class DetectionEngine:
                 "message": f"High traffic rate detected: {total_bps:.2f} bytes/sec."
             })
 
-        # 3. Check Services (Response Time & Availability)
-        services = report.get("services", [])
-        for svc in services:
+        # 3. Services check (Latency & Availability)
+        for svc in report.get("services", []):
             svc_key = (agent_id, svc.get("name"))
             
-            # Response time check
             if svc.get("response_ms", 0) > RESPONSE_TIME_THRESHOLD_MS:
                 alerts.append({
                     "agent_id": agent_id,
@@ -72,10 +73,10 @@ class DetectionEngine:
                     "message": f"Service '{svc.get('name')}' response time is {svc.get('response_ms')}ms."
                 })
 
-            # Availability check (2 checks in a row down)
             if not svc.get("up", True):
                 self.service_downtime_counts[svc_key] = self.service_downtime_counts.get(svc_key, 0) + 1
                 if self.service_downtime_counts[svc_key] >= 2:
+                    # Optional: Add service alert deduplication here similarly if needed
                     alerts.append({
                         "agent_id": agent_id,
                         "type": "SERVICE_DOWN",
@@ -83,7 +84,6 @@ class DetectionEngine:
                         "message": f"Service '{svc.get('name')}' has been down for 2 consecutive checks."
                     })
             else:
-                # Reset counter if service is back up
                 self.service_downtime_counts[svc_key] = 0
 
         return alerts
