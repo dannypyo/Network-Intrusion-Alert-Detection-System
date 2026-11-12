@@ -1,6 +1,7 @@
 """FastAPI application setup: settings, startup, middleware and routes."""
 
 import logging
+import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -8,6 +9,7 @@ from fastapi.responses import JSONResponse
 
 from app.config import Settings, load_settings
 from app.db import init_db
+from app.detection import DetectionEngine
 from app.routes import router
 
 MAX_BODY_BYTES = 1_000_000
@@ -29,6 +31,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title="Network Intrusion Detection Server", lifespan=lifespan)
     app.state.settings = settings
+    # One engine for the whole server, so its history spans every report.
+    # Requests run in parallel threads, so every call goes through the lock.
+    app.state.detection_engine = DetectionEngine()
+    app.state.detection_lock = threading.Lock()
 
     @app.middleware("http")
     async def limit_body_size(request: Request, call_next):

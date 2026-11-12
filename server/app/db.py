@@ -6,9 +6,10 @@ All of the server's SQL lives in this module.
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
-from app.models import Report
 
-SCHEMA_VERSION = 1
+from app.models import AlertSignal, Report
+
+SCHEMA_VERSION = 2
 MIN_SQLITE_VERSION = (3, 37, 0)  # first version with STRICT tables
 
 SCHEMA = """
@@ -56,8 +57,8 @@ CREATE INDEX IF NOT EXISTS idx_service_checks_report ON service_checks (report_i
 CREATE TABLE IF NOT EXISTS alerts (
     id          INTEGER PRIMARY KEY,
     key         TEXT NOT NULL,
-    rule        TEXT NOT NULL,
-    severity    TEXT NOT NULL CHECK (severity IN ('info', 'warning', 'critical')),
+    type        TEXT NOT NULL,
+    severity    TEXT NOT NULL CHECK (severity IN ('LOW', 'MEDIUM', 'HIGH')),
     agent_id    TEXT REFERENCES agents (agent_id),
     message     TEXT NOT NULL,
     status      TEXT NOT NULL CHECK (status IN ('active', 'resolved')),
@@ -120,6 +121,7 @@ def utc_now() -> str:
     """The current server time in the stored format."""
     return to_db_time(datetime.now(timezone.utc))
 
+
 def store_report(conn: sqlite3.Connection, report: Report, received_at: str) -> int:
     """Store one validated report in a single transaction and return its id.
 
@@ -160,3 +162,23 @@ def store_report(conn: sqlite3.Connection, report: Report, received_at: str) -> 
              for s in report.services],
         )
     return report_id
+
+
+def save_alerts(conn: sqlite3.Connection, alerts: list[AlertSignal], now: str) -> None:
+    """Insert each alert, or update the active alert that already has its key.
+
+    The partial unique index on (key) WHERE status = 'active' makes this one statement
+    safe even when two requests save the same key at the same moment.
+    """
+    with conn:
+        conn.executemany(
+            """
+            INSERT INTO alerts (key, type, severity, agent_id, message, status, first_seen, last_seen)
+            VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
+            ON CONFLICT (key) WHERE status = 'active' DO UPDATE SET
+                message = excluded.message,
+                last_seen = excluded.last_seen,
+                count = count + 1
+            """,
+            [(a.key, a.type, a.severity, a.agent_id, a.message, now, now) for a in alerts],
+        )

@@ -5,7 +5,7 @@ every POST /report body against Report and answers 422 naming the bad field.
 """
 
 from collections import Counter
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, IPvAnyAddress, model_validator
 
@@ -71,3 +71,17 @@ class Report(ContractModel):
         if duplicates:
             raise ValueError(f"duplicate service names: {', '.join(duplicates)}")
         return self
+
+
+class AlertSignal(BaseModel):
+    """One alert returned by the detection engine, checked before it is saved.
+
+    Extra fields are ignored rather than rejected: this checks another module's
+    output, not the agent contract.
+    """
+
+    key: Annotated[str, Field(strict=True, min_length=1, max_length=300)]
+    type: Annotated[str, Field(strict=True, min_length=1, max_length=64)]
+    severity: Literal["LOW", "MEDIUM", "HIGH"]
+    agent_id: Annotated[str, Field(strict=True, pattern=AGENT_ID_PATTERN)] | None = None
+    message: Annotated[str, Field(strict=True, max_length=1000)]
