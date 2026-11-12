@@ -30,6 +30,8 @@ python -m app
 
 Check it at http://127.0.0.1:8000/health. For development with auto-reload, run `uvicorn app.main:app --reload` from `server/` instead.
 
+Open http://127.0.0.1:8000/ for the dashboard, or http://127.0.0.1:8000/docs for the API reference.
+
 ## Server configuration
 
 All settings are optional environment variables.
