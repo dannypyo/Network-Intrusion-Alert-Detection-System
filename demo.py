@@ -1,6 +1,9 @@
 """One command to run the whole system for a demo.
 
-    python demo.py
+    python demo.py                            # the full sequence
+    python demo.py --talk 30                  # 30 s pause after each detection (default 45)
+    python demo.py --only brute-force,outage  # just these attacks, in their usual order
+    python demo.py --loop                     # repeat the sequence until Ctrl+C
 
 Starts the server, the target service and five agents with demo settings, then runs a
 sequence of attacks and records when each one is detected. Progress appears on the
@@ -8,6 +11,7 @@ dashboard (from GET /timeline) and in this terminal. Press Ctrl+C to stop everyt
 Each process writes its output to demo_logs/. Uses only the Python standard library.
 """
 
+import argparse
 import json
 import os
 import socket
@@ -45,7 +49,7 @@ AGENTS = {
 READY_TIMEOUT_S = 20
 DETECT_TIMEOUT_S = 60    # an attack not detected within this is marked missed
 RECOVER_TIMEOUT_S = 30   # time allowed for the stopped agent to come back online
-TALK_TIME_S = 45         # pause after each detection before the next attack
+TALK_TIME_S = 45         # default pause after each detection before the next attack (--talk)
 
 # Ignore proxy settings: every request goes to this machine
 OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -204,6 +208,7 @@ def say(text):
 
 @dataclass
 class Step:
+    key: str             # short name used by --only
     name: str
     description: str
     expect: str | None   # alert type this step should raise; None for the recovery step
@@ -228,30 +233,37 @@ def attack(script, *args):
     return lambda processes: processes.run_attack(script, *args)
 
 
-STEPS = [
-    Step("Brute-force login", "8 wrong passwords from 10.0.0.66 against the target's login page",
-         "BRUTE_FORCE_LOGIN", attack("trigger_failed_logins")),
-    Step("Traffic spike", "30 s of parallel large downloads from the target service",
-         "TRAFFIC_SPIKE", attack("trigger_traffic_spike")),
-    Step("Slow responses", "The target adds 1,500 ms to every response for 30 s",
-         "HIGH_LATENCY", attack("trigger_slow_response")),
-    Step("Service outage", "The target refuses connections for 30 s, then recovers",
-         "SERVICE_DOWN", attack("trigger_service_down")),
-    Step("Agent goes offline", "agent-ctl-02 stops reporting",
-         "AGENT_OFFLINE", lambda processes: processes.stop("agent-ctl-02")),
-    Step("Agent back online", "agent-ctl-02 starts reporting again",
-         None, lambda processes: processes.restart("agent-ctl-02")),
-]
+def make_steps():
+    """A fresh list of steps, in the order they run. Each loop round gets its own copy."""
+    return [
+        Step("brute-force", "Brute-force login", "8 wrong passwords from 10.0.0.66 against the target's login page",
+             "BRUTE_FORCE_LOGIN", attack("trigger_failed_logins")),
+        Step("traffic-spike", "Traffic spike", "30 s of parallel large downloads from the target service",
+             "TRAFFIC_SPIKE", attack("trigger_traffic_spike")),
+        Step("slow", "Slow responses", "The target adds 1,500 ms to every response for 30 s",
+             "HIGH_LATENCY", attack("trigger_slow_response")),
+        Step("outage", "Service outage", "The target refuses connections for 30 s, then recovers",
+             "SERVICE_DOWN", attack("trigger_service_down")),
+        Step("offline", "Agent goes offline", "agent-ctl-02 stops reporting",
+             "AGENT_OFFLINE", lambda processes: processes.stop("agent-ctl-02")),
+        Step("offline", "Agent back online", "agent-ctl-02 starts reporting again",
+             None, lambda processes: processes.restart("agent-ctl-02")),
+    ]
+
+
+STEP_KEYS = list(dict.fromkeys(step.key for step in make_steps()))  # in order, without repeats
 
 
 class Sequence:
     """Runs the steps in order, watches the alerts, and keeps the timeline file current."""
 
-    def __init__(self, processes):
+    def __init__(self, processes, steps, talk_time_s, last_seen_by_id=None):
         self.processes = processes
-        self.steps = STEPS
+        self.steps = steps
+        self.talk_time_s = talk_time_s
         self.current = -1           # index of the step that is running
-        self.seen_alert_ids = set()
+        # alert id -> last_seen when last checked; shared between loop rounds
+        self.last_seen_by_id = {} if last_seen_by_id is None else last_seen_by_id
         self.unexpected = []        # keys of alerts no step expected
         self.started = utc_now()
         self.finished = None
@@ -263,7 +275,7 @@ class Sequence:
             "finished_at": to_text(self.finished) if self.finished else None,
             "settings": {"report_interval_s": int(REPORT_INTERVAL_S),
                          **{name.lower(): int(value) for name, value in SERVER_SETTINGS.items()},
-                         "talk_time_s": TALK_TIME_S},
+                         "talk_time_s": self.talk_time_s},
             "steps": [step.as_json() for step in self.steps],
             "unexpected_alerts": self.unexpected,
         }
@@ -273,36 +285,42 @@ class Sequence:
         os.replace(temporary, TIMELINE_FILE)
 
     def watch(self):
-        """Check for crashes and sort every new alert: expected by this step, the previous one, or neither."""
+        """Check for crashes, then sort every new or re-signaled alert."""
         self.processes.check_alive()
         try:
             alerts = get_json("/alerts?status=all&limit=500")
         except (OSError, ValueError):
             return  # the server is busy; try again next second
         for alert in alerts:
-            if alert["id"] in self.seen_alert_ids:
-                continue
-            self.seen_alert_ids.add(alert["id"])
-            self.sort_alert(alert)
+            previous = self.last_seen_by_id.get(alert["id"])
+            if previous is None:
+                self.sort_alert(alert, signaled_at=alert["first_seen"], is_new=True)
+            elif alert["last_seen"] != previous:
+                # An active alert signaled again, e.g. the same attack in the next loop round
+                self.sort_alert(alert, signaled_at=alert["last_seen"], is_new=False)
+            self.last_seen_by_id[alert["id"]] = alert["last_seen"]
         self.write_timeline()
 
-    def sort_alert(self, alert):
+    def sort_alert(self, alert, signaled_at, is_new):
+        """Credit the alert to this step or the previous one; otherwise a new alert is unexpected."""
+        signaled = datetime.fromisoformat(signaled_at)
         # The previous step counts too: its effects can arrive just after the next step starts
         for index in (self.current, self.current - 1):
             if index < 0:
                 continue
             step = self.steps[index]
-            if step.expect == alert["type"] and step.started:
+            if step.expect == alert["type"] and step.started and signaled >= step.started:
                 if step.detected_in_s is None:
-                    first_seen = datetime.fromisoformat(alert["first_seen"])
-                    step.detected_in_s = round(max(0.0, (first_seen - step.started).total_seconds()), 1)
+                    step.detected_in_s = round((signaled - step.started).total_seconds(), 1)
                     step.state = "detected"
                     say(f"DETECTED  {alert['key']}  in {step.detected_in_s} s")
                 if alert["agent_id"] and alert["agent_id"] not in step.raised_by:
                     step.raised_by.append(alert["agent_id"])
                 return
-        self.unexpected.append(alert["key"])
-        say(f"UNEXPECTED alert {alert['key']}")
+        if is_new:
+            # Repeats of an older alert are an ongoing condition, not a new false positive
+            self.unexpected.append(alert["key"])
+            say(f"UNEXPECTED alert {alert['key']}")
 
     def wait(self, seconds, until=None):
         """Watch alerts once a second for up to `seconds`, or until until() is true."""
@@ -341,7 +359,7 @@ class Sequence:
                 say(f"MISSED    {step.name}")
                 talk_until = time.monotonic()  # no talk time after a miss
             else:
-                talk_until = time.monotonic() + TALK_TIME_S
+                talk_until = time.monotonic() + self.talk_time_s
             self.write_timeline()
 
             # Before the next step: let the attack script finish, and leave time to talk
@@ -361,6 +379,60 @@ class Sequence:
         except (OSError, ValueError):
             return False
         return online and "AGENT_OFFLINE:agent-ctl-02" not in active_keys
+
+
+# ---------- Results ----------
+
+def results_table(sequence):
+    lines = ["| Step | Expected alert | Result | Detected in | Raised by / detail |",
+             "| --- | --- | --- | --- | --- |"]
+    for step in sequence.steps:
+        detected = f"{step.detected_in_s} s" if step.detected_in_s is not None else "-"
+        detail = ", ".join(step.raised_by) or step.detail or "-"
+        lines.append(f"| {step.name} | {step.expect or '-'} | {step.state} | {detected} | {detail} |")
+    return lines
+
+
+def save_results(path, sequence, round_number, talk_time_s):
+    """Append one round to the results file (created with a header the first time)."""
+    finished = sequence.finished or utc_now()
+    minutes, seconds = divmod(round((finished - sequence.started).total_seconds()), 60)
+    lines = []
+    if not path.exists():
+        lines += [f"# Demo results: {sequence.started.astimezone():%Y-%m-%d %H:%M}", "",
+                  f"Settings: agents report every {REPORT_INTERVAL_S} s, offline after "
+                  f"{SERVER_SETTINGS['OFFLINE_THRESHOLD_S']} s, monitor sweep every {SERVER_SETTINGS['SWEEP_INTERVAL_S']} s, "
+                  f"alerts expire after {SERVER_SETTINGS['ALERT_EXPIRY_S']} s, talk time {talk_time_s} s.", ""]
+    lines += [f"## Round {round_number} ({sequence.started.astimezone():%H:%M:%S} to "
+              f"{finished.astimezone():%H:%M:%S}, {minutes} min {seconds} s)", "",
+              *results_table(sequence), "",
+              "Unexpected alerts: " + (", ".join(sequence.unexpected) or "none"), "", ""]
+    with open(path, "a", encoding="utf-8") as results:
+        results.write("\n".join(lines))
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Start the whole system and run the attack sequence.")
+    parser.add_argument("--talk", type=int, default=TALK_TIME_S,
+                        help=f"seconds to pause after each detection (default {TALK_TIME_S})")
+    parser.add_argument("--only", help=f"comma-separated attacks to run: {', '.join(STEP_KEYS)}")
+    parser.add_argument("--loop", action="store_true", help="repeat the sequence until Ctrl+C")
+    args = parser.parse_args()
+
+    if args.talk < 0:
+        parser.error("--talk cannot be negative")
+    if args.only:
+        chosen = [key.strip() for key in args.only.split(",") if key.strip()]
+        unknown = [key for key in chosen if key not in STEP_KEYS]
+        if unknown or not chosen:
+            parser.error(f"unknown attack in --only: {', '.join(unknown) or '(none given)'}. "
+                         f"Choose from: {', '.join(STEP_KEYS)}")
+        args.only = set(chosen)
+    return args
+
+
+def chosen_steps(only):
+    return [step for step in make_steps() if not only or step.key in only]
 
 
 # ---------- Main ----------
@@ -401,6 +473,7 @@ def start_everything(processes):
 
 
 def main():
+    args = parse_args()
     busy = [f"{port} ({owner})" for port, owner in PORTS.items() if port_in_use(port)]
     if busy:
         raise DemoError(f"Port {', '.join(busy)} is already in use. "
@@ -415,8 +488,22 @@ def main():
     try:
         start_everything(processes)
         print(f"\nDashboard: {SERVER_URL}/\n")
-        sequence = Sequence(processes)
-        sequence.run()
+        results = LOG_DIR / f"results-{datetime.now():%Y-%m-%d-%H%M}.md"
+        last_seen_by_id = {}
+        round_number = 1
+        while True:
+            sequence = Sequence(processes, chosen_steps(args.only), args.talk, last_seen_by_id)
+            sequence.run()
+            save_results(results, sequence, round_number, args.talk)
+            print("\n" + "\n".join(results_table(sequence)))
+            print("Unexpected alerts: " + (", ".join(sequence.unexpected) or "none"))
+            print(f"Saved to {results.relative_to(ROOT)}\n")
+            if not args.loop:
+                break
+            say(f"Round {round_number} finished. Next round in {args.talk} s.")
+            sequence.wait(args.talk)
+            round_number += 1
+
         say("Attack sequence finished. Press Ctrl+C to stop.")
         while True:
             sequence.watch()  # keep recording any later alerts until Ctrl+C

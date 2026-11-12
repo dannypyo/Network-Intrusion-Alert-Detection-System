@@ -32,9 +32,25 @@ pip install -r server/requirements-dev.txt -r monitoring_agent/requirements.txt
 
 Run `source .venv/bin/activate` again in every new terminal. On Windows PowerShell, use `.venv\Scripts\Activate.ps1` instead.
 
-### 2. Run the system
+### 2. Run the demo
 
-Start each of these in its own terminal, from the repository root, in this order:
+```bash
+python demo.py
+```
+
+This one command starts the server, the target service and five agents, then runs a sequence of attacks and records when each one is detected. Open http://127.0.0.1:8000/ to watch it on the dashboard. Press Ctrl+C to stop everything.
+
+| Option | Example | Effect |
+| --- | --- | --- |
+| `--talk` | `--talk 30` | Seconds to pause after each detection before the next attack (default 45) |
+| `--only` | `--only brute-force,outage` | Run only these attacks: `brute-force`, `traffic-spike`, `slow`, `outage`, `offline` |
+| `--loop` | `--loop` | Repeat the sequence until Ctrl+C |
+
+Each process logs to `demo_logs/`, and the results of every run, including detection times, are saved there as `results-<date>-<time>.md`. The demo uses shorter timers than the defaults: agents report every 5 s, an agent counts as offline after 15 s, and alerts expire after 3 minutes.
+
+### 3. Run the parts yourself
+
+For development and debugging, start each of these in its own terminal, from the repository root, in this order:
 
 ```bash
 cd server && python -m app        # terminal 1: the server, on port 8000
@@ -44,7 +60,7 @@ python env/run_agent.py           # terminal 3: an agent that reports every 10 s
 
 Open http://127.0.0.1:8000/ for the dashboard and http://127.0.0.1:8000/docs for the API reference. The agent appears as `online` within 10 seconds. For development with auto-reload, run `uvicorn app.main:app --reload` from `server/` instead of `python -m app`.
 
-### 3. Trigger an alert
+### 4. Trigger an alert
 
 In a fourth terminal:
 
@@ -54,7 +70,7 @@ python env/trigger_failed_logins.py
 
 A `BRUTE_FORCE_LOGIN` alert appears on the dashboard within about 10 seconds. `env/README.md` lists all five scenarios and the alert each one causes.
 
-### 4. Run the tests
+### 5. Run the tests
 
 ```bash
 cd server && pytest
@@ -66,7 +82,7 @@ cd server && pytest
 
 ### Starting over
 
-Stop everything with Ctrl+C. To clear all stored agents and alerts, delete the database with `rm -f server/data/monitor.db*`.
+Stop everything with Ctrl+C. To clear all stored agents and alerts, delete the database with `rm -f server/data/monitor.db*`. The demo does this automatically each time it starts.
 
 ### More documentation
 
