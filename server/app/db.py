@@ -4,6 +4,7 @@ All of the server's SQL lives in this module.
 """
 
 import sqlite3
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -33,6 +34,7 @@ CREATE TABLE IF NOT EXISTS reports (
     interval_s  REAL NOT NULL CHECK (interval_s > 0)
 ) STRICT;
 CREATE INDEX IF NOT EXISTS idx_reports_agent_time ON reports (agent_id, received_at);
+CREATE INDEX IF NOT EXISTS idx_reports_time ON reports (received_at);
 
 CREATE TABLE IF NOT EXISTS failed_logins (
     id        INTEGER PRIMARY KEY,
@@ -42,6 +44,7 @@ CREATE TABLE IF NOT EXISTS failed_logins (
     time      TEXT NOT NULL
 ) STRICT;
 CREATE INDEX IF NOT EXISTS idx_failed_logins_ip_time ON failed_logins (source_ip, time);
+CREATE INDEX IF NOT EXISTS idx_failed_logins_report ON failed_logins (report_id);
 
 CREATE TABLE IF NOT EXISTS service_checks (
     id          INTEGER PRIMARY KEY,
@@ -269,3 +272,76 @@ def sweep(
         ).rowcount
 
     return [row["agent_id"] for row in went_offline], expired
+
+
+def list_agents(conn: sqlite3.Connection) -> list[dict]:
+    rows = conn.execute("SELECT agent_id, status, first_seen, last_seen FROM agents ORDER BY agent_id")
+    return [dict(row) for row in rows]
+
+
+def list_alerts(conn: sqlite3.Connection, status: str, limit: int) -> list[dict]:
+    """Alerts with the given status ('active', 'resolved' or 'all'), most recently signaled first."""
+    rows = conn.execute(
+        """
+        SELECT id, key, type, severity, agent_id, message, status,
+               first_seen, last_seen, count, resolved_at
+        FROM alerts
+        WHERE ? = 'all' OR status = ?
+        ORDER BY last_seen DESC, id DESC
+        LIMIT ?
+        """,
+        (status, status, limit),
+    )
+    return [dict(row) for row in rows]
+
+
+def list_metrics(conn: sqlite3.Connection, agent_id: str | None, since: str, limit: int) -> list[dict]:
+    """Reports received since `since`, oldest first, each with its service checks.
+
+    When more than `limit` reports match, the newest `limit` are kept.
+    """
+    reports = conn.execute(
+        """
+        SELECT * FROM (
+            SELECT id, agent_id, received_at, bytes_in, bytes_out, packets_in, packets_out, interval_s
+            FROM reports
+            WHERE received_at >= ? AND (? IS NULL OR agent_id = ?)
+            ORDER BY received_at DESC, id DESC
+            LIMIT ?
+        )
+        ORDER BY received_at, id
+        """,
+        (since, agent_id, agent_id, limit),
+    ).fetchall()
+    if not reports:
+        return []
+
+    # One query each for the services and login counts of all chosen reports.
+    # Only "?" placeholders are built here; the ids themselves are passed as parameters.
+    ids = [row["id"] for row in reports]
+    placeholders = ",".join("?" * len(ids))
+    services = defaultdict(list)
+    for row in conn.execute(
+        f"SELECT report_id, name, up, response_ms, error FROM service_checks "
+        f"WHERE report_id IN ({placeholders}) ORDER BY id",
+        ids,
+    ):
+        services[row["report_id"]].append(
+            {"name": row["name"], "up": bool(row["up"]), "response_ms": row["response_ms"], "error": row["error"]}
+        )
+    login_counts = dict(conn.execute(
+        f"SELECT report_id, count(*) FROM failed_logins WHERE report_id IN ({placeholders}) GROUP BY report_id",
+        ids,
+    ).fetchall())
+
+    return [
+        {
+            "report_id": r["id"],
+            "agent_id": r["agent_id"],
+            "received_at": r["received_at"],
+            "traffic": {key: r[key] for key in ("bytes_in", "bytes_out", "packets_in", "packets_out", "interval_s")},
+            "failed_logins": login_counts.get(r["id"], 0),
+            "services": services[r["id"]],
+        }
+        for r in reports
+    ]

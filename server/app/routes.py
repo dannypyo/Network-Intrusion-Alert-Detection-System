@@ -4,13 +4,15 @@ import hmac
 import logging
 import sqlite3
 from collections.abc import Iterator
-from typing import Annotated
+from datetime import datetime, timedelta, timezone
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from pydantic import ValidationError
 
-from app.db import connect, save_alerts, store_report, utc_now
-from app.models import AlertSignal, Report
+from app.db import (connect, list_agents, list_alerts, list_metrics, save_alerts,
+                    store_report, to_db_time, utc_now)
+from app.models import AGENT_ID_PATTERN, AgentOut, AlertOut, AlertSignal, MetricOut, Report
 
 router = APIRouter()
 logger = logging.getLogger("uvicorn.error")
@@ -84,3 +86,28 @@ def post_report(
         signals = []
 
     return {"status": "ok", "report_id": report_id, "alerts": len(signals)}
+
+
+@router.get("/agents", response_model=list[AgentOut])
+def get_agents(conn: Annotated[sqlite3.Connection, Depends(get_db)]) -> list[dict]:
+    return list_agents(conn)
+
+
+@router.get("/alerts", response_model=list[AlertOut])
+def get_alerts(
+    conn: Annotated[sqlite3.Connection, Depends(get_db)],
+    status: Literal["active", "resolved", "all"] = "active",
+    limit: Annotated[int, Query(ge=1, le=500)] = 50,
+) -> list[dict]:
+    return list_alerts(conn, status, limit)
+
+
+@router.get("/metrics", response_model=list[MetricOut])
+def get_metrics(
+    conn: Annotated[sqlite3.Connection, Depends(get_db)],
+    agent_id: Annotated[str | None, Query(pattern=AGENT_ID_PATTERN)] = None,
+    since_seconds: Annotated[int, Query(ge=1, le=86_400)] = 300,
+    limit: Annotated[int, Query(ge=1, le=2000)] = 500,
+) -> list[dict]:
+    since = to_db_time(datetime.now(timezone.utc) - timedelta(seconds=since_seconds))
+    return list_metrics(conn, agent_id, since, limit)

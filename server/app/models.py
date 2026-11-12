@@ -85,3 +85,53 @@ class AlertSignal(BaseModel):
     severity: Literal["LOW", "MEDIUM", "HIGH"]
     agent_id: Annotated[str, Field(strict=True, pattern=AGENT_ID_PATTERN)] | None = None
     message: Annotated[str, Field(strict=True, max_length=1000)]
+
+
+# ---------- Responses of the read endpoints (also documented at /docs) ----------
+
+
+class AgentOut(BaseModel):
+    agent_id: str
+    status: str
+    first_seen: str | None
+    last_seen: str | None
+
+
+class AlertOut(BaseModel):
+    id: int
+    key: str
+    type: str
+    severity: str
+    agent_id: str | None
+    message: str
+    status: str
+    first_seen: str
+    last_seen: str
+    count: int
+    resolved_at: str | None
+
+
+class TrafficOut(BaseModel):
+    bytes_in: int
+    bytes_out: int
+    packets_in: int
+    packets_out: int
+    interval_s: float
+
+
+class ServiceOut(BaseModel):
+    name: str
+    up: bool
+    response_ms: float | None
+    error: str | None
+
+
+class MetricOut(BaseModel):
+    """One report: a single point in time on a chart."""
+
+    report_id: int
+    agent_id: str
+    received_at: str
+    traffic: TrafficOut
+    failed_logins: int  # how many, not the attacker-controlled usernames
+    services: list[ServiceOut]
