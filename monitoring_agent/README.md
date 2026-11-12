@@ -13,7 +13,7 @@ The agent collects network traffic information, checks service availability, mea
 - **Service Availability:** Checks whether a service is reachable.
 - **JSON Reporting:** Generates reports approximately every 10 seconds.
 - **HTTP Communication:** Sends reports to the central server using HTTP POST.
-- **Retry Handling:** Retries failed requests up to three times.
+- **Reliable Reporting:** Sends each report once; if one fails, the next report replaces it.
 
 ## Project Files
 
@@ -80,4 +80,4 @@ To test against a target service and trigger alerts, see `env/README.md`.
 
 The monitoring agent has been tested locally and is ready for integration.
 
-Before the FastAPI server accepts its reports, the agent must send `AGENT_TOKEN` in the `X-Agent-Token` header. The failed-login collector is also still to come.
+The agent reports to the FastAPI server, authenticating with `AGENT_TOKEN`. The remaining step is the failed-login collector.

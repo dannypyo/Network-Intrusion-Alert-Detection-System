@@ -2,7 +2,7 @@ import json
 import time
 from datetime import datetime, timezone
 from reporter import send_report
-from config import SERVER_URL
+from config import SERVER_URL, AGENT_TOKEN
 
 # Import our configuration settings
 from config import AGENT_ID, REPORT_INTERVAL, MONITORED_SERVICES
@@ -71,12 +71,15 @@ def main():
     # Take the first network snapshot
     previous_stats = get_network_snapshot()
     previous_time = time.monotonic()
+    next_report_at = previous_time + REPORT_INTERVAL
 
     # Keep the agent running
     while True:
 
-        # Wait for the reporting interval
-        time.sleep(REPORT_INTERVAL)
+        # Wait until the next report is due. The checks and the send take time,
+        # so this keeps reports one interval apart instead of drifting later.
+        time.sleep(max(0, next_report_at - time.monotonic()))
+        next_report_at = time.monotonic() + REPORT_INTERVAL
 
         # Take the next snapshot
         current_stats = get_network_snapshot()
@@ -99,7 +102,7 @@ def main():
         previous_stats = current_stats
         previous_time = current_time
 
-        success = send_report(SERVER_URL, report)
+        success = send_report(SERVER_URL, report, AGENT_TOKEN)
 
         if not success:
             print("Report delivery failed. Continuing monitoring...")
