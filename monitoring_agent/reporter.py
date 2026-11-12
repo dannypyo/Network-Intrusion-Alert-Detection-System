@@ -1,46 +1,70 @@
 import requests
-import time
+
+# Maximum time to connect, and to wait for the server to answer
+CONNECT_TIMEOUT_S = 2
+READ_TIMEOUT_S = 3
 
 
-def send_report(server_url, report, max_attempts=3):
+def describe_validation_errors(response):
     """
-    Send a JSON report to the FastAPI server.
+    Turn the server's 422 answer into one line per rejected field.
+    """
+    try:
+        details = response.json()["detail"]
+        return [
+            f"  {'.'.join(str(part) for part in item['loc'])}: {item['msg']}"
+            for item in details
+        ]
+    except (ValueError, KeyError, TypeError):
+        # Not the usual FastAPI format, so show the raw answer instead
+        return [f"  {response.text[:500]}"]
 
-    Retry if the server cannot be reached or returns
-    a temporary server error.
+
+def send_report(server_url, report, token):
+    """
+    Send a JSON report to the FastAPI server once.
+
+    A failed report is not retried: the next report, sent one interval
+    later, replaces it with newer data.
+
+    Returns:
+        True if the server accepted the report, otherwise False.
     """
 
-    for attempt in range(1, max_attempts + 1):
+    try:
+        response = requests.post(
+            f"{server_url}/report",
+            json=report,
+            headers={"X-Agent-Token": token},
+            timeout=(CONNECT_TIMEOUT_S, READ_TIMEOUT_S)
+        )
 
+    except requests.RequestException as error:
+        print(f"Server unreachable ({type(error).__name__}); this report is skipped.")
+        return False
+
+    status = response.status_code
+
+    if 200 <= status < 300:
         try:
-            response = requests.post(
-                f"{server_url}/report",
-                json=report,
-                timeout=5
-            )
+            body = response.json()
+            report_id = body.get("report_id") if isinstance(body, dict) else None
+        except ValueError:
+            report_id = None
+        print(f"Report sent (report_id {report_id})." if report_id is not None else "Report sent.")
+        return True
 
-            # Raise an exception for unsuccessful HTTP responses
-            response.raise_for_status()
+    if status == 401:
+        print("Rejected: AGENT_TOKEN does not match the server's.")
+    elif status == 422:
+        print("Rejected as invalid:")
+        for line in describe_validation_errors(response):
+            print(line)
+    elif status == 413:
+        print("Rejected: report too large.")
+    elif status >= 500:
+        print(f"Server error {status}; this report is skipped.")
+    else:
+        print(f"Unexpected response {status}: {response.text[:200]}")
 
-            print("Report successfully sent!")
-            return True
-
-        except requests.RequestException as error:
-            print(f"Attempt {attempt} failed: {error}")
-
-            # Do not retry permanent client errors (HTTP 4xx)
-            if (
-                isinstance(error, requests.HTTPError)
-                and error.response is not None
-                and 400 <= error.response.status_code < 500
-            ):
-                print("Client error: check the API URL or report format.")
-                return False
-
-            # Wait before retrying, but not after the final attempt
-            if attempt < max_attempts:
-                print("Retrying in 2 seconds...")
-                time.sleep(2)
-
-    print("All attempts failed. Report was not delivered.")
     return False

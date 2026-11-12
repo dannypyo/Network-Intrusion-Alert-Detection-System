@@ -1,3 +1,4 @@
+from config import AGENT_TOKEN
 from reporter import send_report
 
 # Test report using the team's JSON structure
@@ -17,6 +18,6 @@ test_report = {
 # Use a local address where no server is expected to be running
 server_url = "http://127.0.0.1:8765"
 
-result = send_report(server_url, test_report)
+result = send_report(server_url, test_report, AGENT_TOKEN)
 
 print(f"Final result: {result}")

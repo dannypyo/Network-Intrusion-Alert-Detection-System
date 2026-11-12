@@ -11,9 +11,10 @@ The agent collects network traffic information, checks service availability, mea
 - **Network Traffic:** Tracks incoming and outgoing bytes and packets.
 - **Response Time:** Measures how long a server takes to respond to an HTTP request.
 - **Service Availability:** Checks whether a service is reachable.
+- **Failed Logins:** Reads new failed login attempts from the target service's log.
 - **JSON Reporting:** Generates reports approximately every 10 seconds.
 - **HTTP Communication:** Sends reports to the central server using HTTP POST.
-- **Retry Handling:** Retries failed requests up to three times.
+- **Reliable Reporting:** Sends each report once; if one fails, the next report replaces it.
 
 ## Project Files
 
@@ -23,7 +24,8 @@ The agent collects network traffic information, checks service availability, mea
 - `collectors/traffic.py` — Collects network traffic.
 - `collectors/response.py` — Measures response times.
 - `collectors/availability.py` — Checks service availability.
-- `test_*.py` — Files used to test individual components.
+- `check_*.py` — Scripts for checking individual components by hand.
+- `echo_server.py` — Prints each report it receives, for testing without the central server.
 
 ## Setup
 
@@ -33,7 +35,26 @@ Install the required libraries:
 pip install -r requirements.txt
 ```
 
-Update `config.py` with the correct server address and services to monitor.
+## Configuration
+
+All settings are optional environment variables. With none set, the agent reports to a server on this computer and monitors that server's health check.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `AGENT_ID` | `agent-local` | This agent's name (letters, digits, `.`, `_`, `-`) |
+| `SERVER_URL` | `http://127.0.0.1:8000` | Central server address |
+| `AGENT_TOKEN` | `dev-token-not-for-deployment` | Shared secret; must match the server's |
+| `REPORT_INTERVAL_S` | `10` | Seconds between reports |
+| `SERVICES` | `server=http://127.0.0.1:8000/health` | Comma-separated `name=url` pairs to monitor |
+| `AUTH_LOG_PATH` | `env/logs/auth.log` | Failed-login log written by the target service |
+
+In `SERVICES`, the URL's scheme picks the check: `http://` or `https://` for an HTTP check, `tcp://` for a TCP connection check (a port is required). For example:
+
+```bash
+AGENT_ID=agent-web-01 SERVICES="web=http://127.0.0.1:9000/,control=tcp://127.0.0.1:9001" python main.py
+```
+
+Invalid settings stop the agent at startup with a message naming the problem.
 
 ## Running the Agent
 
@@ -51,13 +72,14 @@ Press `Ctrl + C` to stop it.
 
 To test without the central FastAPI server:
 
-1. Change `SERVER_URL` in `config.py` to `http://127.0.0.1:8765`.
-2. Run `python test_server.py` in one terminal.
-3. Run `python main.py` in another terminal.
-4. Check that the report is received successfully.
+1. Run `python echo_server.py` in one terminal.
+2. Run `SERVER_URL=http://127.0.0.1:8765 python main.py` in another terminal.
+3. Check that the report is received successfully.
+
+To test against a target service and trigger alerts, see `env/README.md`.
 
 ## Integration
 
 The monitoring agent has been tested locally and is ready for integration.
 
-The remaining steps are connecting to the FastAPI server and adding failed-login collector.
+The agent reports to the FastAPI server, authenticating with `AGENT_TOKEN`. All collectors are complete.

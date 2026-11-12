@@ -5,7 +5,7 @@ every POST /report body against Report and answers 422 naming the bad field.
 """
 
 from collections import Counter
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, IPvAnyAddress, model_validator
 
@@ -71,3 +71,67 @@ class Report(ContractModel):
         if duplicates:
             raise ValueError(f"duplicate service names: {', '.join(duplicates)}")
         return self
+
+
+class AlertSignal(BaseModel):
+    """One alert returned by the detection engine, checked before it is saved.
+
+    Extra fields are ignored rather than rejected: this checks another module's
+    output, not the agent contract.
+    """
+
+    key: Annotated[str, Field(strict=True, min_length=1, max_length=300)]
+    type: Annotated[str, Field(strict=True, min_length=1, max_length=64)]
+    severity: Literal["LOW", "MEDIUM", "HIGH"]
+    agent_id: Annotated[str, Field(strict=True, pattern=AGENT_ID_PATTERN)] | None = None
+    message: Annotated[str, Field(strict=True, max_length=1000)]
+
+
+# ---------- Responses of the read endpoints (also documented at /docs) ----------
+
+
+class AgentOut(BaseModel):
+    agent_id: str
+    status: str
+    first_seen: str | None
+    last_seen: str | None
+
+
+class AlertOut(BaseModel):
+    id: int
+    key: str
+    type: str
+    severity: str
+    agent_id: str | None
+    message: str
+    status: str
+    first_seen: str
+    last_seen: str
+    count: int
+    resolved_at: str | None
+
+
+class TrafficOut(BaseModel):
+    bytes_in: int
+    bytes_out: int
+    packets_in: int
+    packets_out: int
+    interval_s: float
+
+
+class ServiceOut(BaseModel):
+    name: str
+    up: bool
+    response_ms: float | None
+    error: str | None
+
+
+class MetricOut(BaseModel):
+    """One report: a single point in time on a chart."""
+
+    report_id: int
+    agent_id: str
+    received_at: str
+    traffic: TrafficOut
+    failed_logins: int  # how many, not the attacker-controlled usernames
+    services: list[ServiceOut]
