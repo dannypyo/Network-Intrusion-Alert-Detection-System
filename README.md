@@ -88,3 +88,4 @@ All settings are optional environment variables.
 | `ALERT_EXPIRY_S` | `60` | Seconds without a new signal before an alert resolves |
 | `AGENT_TOKEN` | `dev-token-not-for-deployment` | Shared secret agents send in `X-Agent-Token`. Set your own (16+ characters) before deploying |
 | `EXPECTED_AGENTS` | (none) | Comma-separated agent IDs that should be reporting; any that never report are flagged offline |
+| `TIMELINE_PATH` | `demo_logs/timeline.json` | Status file written by `demo.py`, served at `GET /timeline` |
