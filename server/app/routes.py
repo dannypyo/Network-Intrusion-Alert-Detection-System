@@ -14,7 +14,7 @@ from pydantic import ValidationError
 
 from app.db import (connect, list_agents, list_alerts, list_metrics, save_alerts,
                     store_report, to_db_time, utc_now)
-from app.models import AGENT_ID_PATTERN, AgentOut, AlertOut, AlertSignal, MetricOut, Report
+from app.models import AGENT_ID_PATTERN, AgentOut, AlertOut, AlertSignal, MetricOut, Report, TimelineOut
 
 router = APIRouter()
 logger = logging.getLogger("uvicorn.error")
@@ -125,3 +125,16 @@ def get_metrics(
 ) -> list[dict]:
     since = to_db_time(datetime.now(timezone.utc) - timedelta(seconds=since_seconds))
     return list_metrics(conn, agent_id, since, limit)
+
+
+@router.get("/timeline", response_model=TimelineOut)
+def get_timeline(request: Request) -> TimelineOut:
+    """The attack sequence run by demo.py, or an inactive timeline when none is running."""
+    path = Path(request.app.state.settings.timeline_path)
+    try:
+        return TimelineOut.model_validate_json(path.read_bytes())
+    except FileNotFoundError:
+        return TimelineOut()  # the normal case whenever the demo runner is not running
+    except (OSError, ValidationError) as error:
+        logger.warning("Ignoring unreadable timeline file %s: %s", path, error)
+        return TimelineOut()

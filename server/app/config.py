@@ -3,12 +3,16 @@
 import os
 import re
 from dataclasses import dataclass
+from pathlib import Path
 
 from app.models import AGENT_ID_PATTERN
 
 # Shared default so local testing needs no setup. Never use it on a deployed server.
 DEV_AGENT_TOKEN = "dev-token-not-for-deployment"
 MIN_TOKEN_LENGTH = 16
+
+# <repo root>/demo_logs/timeline.json, found from this file's location (server/app/config.py)
+DEFAULT_TIMELINE_PATH = str(Path(__file__).resolve().parents[2] / "demo_logs" / "timeline.json")
 
 
 @dataclass(frozen=True)
@@ -21,6 +25,7 @@ class Settings:
     alert_expiry_s: int = 60
     agent_token: str = DEV_AGENT_TOKEN
     expected_agents: tuple[str, ...] = ()
+    timeline_path: str = DEFAULT_TIMELINE_PATH
 
     @property
     def using_dev_token(self) -> bool:
@@ -75,4 +80,5 @@ def load_settings() -> Settings:
         alert_expiry_s=_positive_int("ALERT_EXPIRY_S", Settings.alert_expiry_s),
         agent_token=_agent_token(),
         expected_agents=_expected_agents(),
+        timeline_path=os.environ.get("TIMELINE_PATH", "").strip() or Settings.timeline_path,
     )
