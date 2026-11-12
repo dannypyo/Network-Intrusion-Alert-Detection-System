@@ -71,7 +71,9 @@ def post_report(
     conn: Annotated[sqlite3.Connection, Depends(get_db)],
 ) -> dict:
     received_at = utc_now()
-    report_id = store_report(conn, report, received_at)  # committed on its own
+    report_id, came_back = store_report(conn, report, received_at)  # committed on its own
+    if came_back:
+        logger.info("%s is back online", report.agent_id)
 
     signals = run_detection(request.app.state, report)
     try:

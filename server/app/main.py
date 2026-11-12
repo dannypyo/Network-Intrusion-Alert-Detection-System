@@ -1,8 +1,11 @@
 """FastAPI application setup: settings, startup, middleware and routes."""
 
+import asyncio
+import contextlib
 import logging
 import threading
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -10,6 +13,7 @@ from fastapi.responses import JSONResponse
 from app.config import Settings, load_settings
 from app.db import init_db
 from app.detection import DetectionEngine
+from app.monitor import prepare, run_monitor
 from app.routes import router
 
 MAX_BODY_BYTES = 1_000_000
@@ -27,7 +31,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         init_db(settings.db_path)
         if settings.using_dev_token:
             logger.warning("Using the development AGENT_TOKEN; set AGENT_TOKEN before deploying")
+        prepare(settings)
+        started_at = datetime.now(timezone.utc)
+        monitor = asyncio.create_task(run_monitor(settings, started_at))
         yield
+        # Server is shutting down: stop the monitor and wait for it to finish
+        monitor.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await monitor
 
     app = FastAPI(title="Network Intrusion Detection Server", lifespan=lifespan)
     app.state.settings = settings
