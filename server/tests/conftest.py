@@ -13,7 +13,9 @@ TEST_TOKEN = "test-token-0123456789"
 def settings(tmp_path):
     # Each test gets its own database file. A one-hour sweep interval keeps the
     # background monitor from running during a test; its logic is tested directly.
-    return Settings(db_path=str(tmp_path / "test.db"), agent_token=TEST_TOKEN, sweep_interval_s=3600)
+    # The timeline file is also temporary, so a real demo run cannot affect these tests.
+    return Settings(db_path=str(tmp_path / "test.db"), agent_token=TEST_TOKEN, sweep_interval_s=3600,
+                    timeline_path=str(tmp_path / "timeline.json"))
 
 
 @pytest.fixture
