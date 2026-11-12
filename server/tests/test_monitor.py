@@ -99,14 +99,15 @@ def test_offline_agent_is_not_flagged_again(conn):
 
 def test_offline_agent_comes_back(client, auth, settings, caplog):
     caplog.set_level(logging.INFO, logger="uvicorn.error")
-    client.post("/report", json=valid_report(), headers=auth)
+    report = {**valid_report(), "services": []}  # no services, so no other alerts appear
+    client.post("/report", json=report, headers=auth)
     conn = connect(settings.db_path)
     now = datetime.now(timezone.utc)
     sweep(conn, now + timedelta(seconds=31), now - timedelta(seconds=100), 30, 60)
     assert statuses(conn)["agent-web-01"] == "offline"
 
-    client.post("/report", json=valid_report(), headers=auth)
-    client.post("/report", json=valid_report(), headers=auth)
+    client.post("/report", json=report, headers=auth)
+    client.post("/report", json=report, headers=auth)
 
     assert statuses(conn)["agent-web-01"] == "online"
     assert active_alerts(conn) == {}
