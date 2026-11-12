@@ -5,9 +5,11 @@ import logging
 import sqlite3
 from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
+from fastapi.responses import FileResponse
 from pydantic import ValidationError
 
 from app.db import (connect, list_agents, list_alerts, list_metrics, save_alerts,
@@ -16,6 +18,10 @@ from app.models import AGENT_ID_PATTERN, AgentOut, AlertOut, AlertSignal, Metric
 
 router = APIRouter()
 logger = logging.getLogger("uvicorn.error")
+
+# <repo root>/dashboard/index.html, found from this file's location (server/app/routes.py),
+# so it works no matter which folder the server is started from
+DASHBOARD_FILE = Path(__file__).resolve().parents[2] / "dashboard" / "index.html"
 
 
 def get_db(request: Request) -> Iterator[sqlite3.Connection]:
@@ -59,6 +65,14 @@ def run_detection(state, report: Report) -> list[AlertSignal]:
         except ValidationError as error:
             logger.error("Skipping malformed alert %r: %s", raw, error)
     return signals
+
+
+@router.get("/", include_in_schema=False)
+def dashboard() -> FileResponse:
+    """Serve Matthew's dashboard. Only this one file is served, never the rest of the folder."""
+    if not DASHBOARD_FILE.is_file():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Dashboard not found")
+    return FileResponse(DASHBOARD_FILE)
 
 
 @router.get("/health")
