@@ -11,10 +11,18 @@
         th, td { padding: 10px; border: 1px solid #ddd; text-align: left; }
         th { background: #2c3e50; color: white; }
         .alert-high { background: #ffdddd; }
+        .alert-medium { background: #fff3cd; }
+        .alert-low { background: #e7f1ff; }
+        .agent-offline { background: #ffdddd; }
+        .agent-pending { color: #888; }
+        .empty { color: #888; font-style: italic; }
+        #status-line { color: #666; margin-top: -10px; }
+        #status-line.connection-lost { color: #c0392b; font-weight: bold; }
     </style>
 </head>
 <body>
     <h1>Network Intrusion Detection System Dashboard</h1>
+    <p id="status-line">Connecting...</p>
     
     <div class="card">
         <h2>Agents Status</h2>
@@ -31,27 +39,70 @@
     </div>
 
     <script>
+        // Severity and status map to fixed CSS classes, never to text from the server
+        const SEVERITY_CLASSES = { HIGH: 'alert-high', MEDIUM: 'alert-medium', LOW: 'alert-low' };
+        const STATUS_CLASSES = { offline: 'agent-offline', pending: 'agent-pending' };
+
+        // Remove every row except the header row
+        function clearTable(table) {
+            while (table.rows.length > 1) {
+                table.deleteRow(1);
+            }
+        }
+
+        // Add a row whose cells are set with textContent, so data is always shown as plain text
+        function addRow(table, values, className) {
+            const row = table.insertRow();
+            if (className) {
+                row.className = className;
+            }
+            values.forEach(value => {
+                row.insertCell().textContent = value;
+            });
+        }
+
+        // Fetch JSON, treating an error status like a failed connection
+        async function getJson(url) {
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error(`${url} returned ${response.status}`);
+            }
+            return response.json();
+        }
+
         async function fetchData() {
+            const statusLine = document.getElementById('status-line');
             try {
                 // Fetch agents
-                const agentsRes = await fetch('/agents');
-                const agents = await agentsRes.json();
+                const agents = await getJson('/agents');
                 const agentsTable = document.getElementById('agents-table');
-                agentsTable.innerHTML = '<tr><th>Agent ID</th><th>Last Seen</th><th>Status</th></tr>';
+                clearTable(agentsTable);
                 agents.forEach(agent => {
-                    agentsTable.innerHTML += `<tr><td>${agent.agent_id}</td><td>${agent.last_seen}</td><td>${agent.status}</td></tr>`;
+                    addRow(agentsTable, [agent.agent_id, agent.last_seen ?? 'never', agent.status],
+                           STATUS_CLASSES[agent.status]);
                 });
 
                 // Fetch alerts
-                const alertsRes = await fetch('/alerts');
-                const alerts = await alertsRes.json();
+                const alerts = await getJson('/alerts');
                 const alertsTable = document.getElementById('alerts-table');
-                alertsTable.innerHTML = '<tr><th>Agent ID</th><th>Type</th><th>Severity</th><th>Message</th></tr>';
+                clearTable(alertsTable);
                 alerts.forEach(alert => {
-                    alertsTable.innerHTML += `<tr class="alert-high"><td>${alert.agent_id}</td><td>${alert.type}</td><td>${alert.severity}</td><td>${alert.message}</td></tr>`;
+                    addRow(alertsTable, [alert.agent_id, alert.type, alert.severity, alert.message],
+                           SEVERITY_CLASSES[alert.severity]);
                 });
+                if (alerts.length === 0) {
+                    const cell = alertsTable.insertRow().insertCell();
+                    cell.colSpan = 4;
+                    cell.className = 'empty';
+                    cell.textContent = 'No active alerts';
+                }
+
+                statusLine.textContent = `Updated ${new Date().toLocaleTimeString()}`;
+                statusLine.className = '';
             } catch (err) {
                 console.error("Error polling API:", err);
+                statusLine.textContent = `Connection lost (last attempt ${new Date().toLocaleTimeString()})`;
+                statusLine.className = 'connection-lost';
             }
         }
 
