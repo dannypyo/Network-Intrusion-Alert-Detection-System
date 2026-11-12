@@ -3,9 +3,9 @@ from collectors.availability import check_service_availability
 host = "google.com"
 port = 443
 
-is_available = check_service_availability(host, port)
+result = check_service_availability(host, port)
 
-if is_available:
-    print(f"{host}:{port} is available.")
+if result["up"]:
+    print(f"{host}:{port} is available ({result['response_ms']} ms to connect).")
 else:
-    print(f"{host}:{port} is unavailable.")
+    print(f"{host}:{port} is unavailable ({result['error']}).")

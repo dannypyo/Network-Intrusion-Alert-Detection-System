@@ -1,7 +1,25 @@
 import socket
+import time
+
+# Maximum time to wait for a TCP connection
+CONNECT_TIMEOUT_S = 2
 
 
-def check_service_availability(host, port, timeout=3):
+def classify_connection_error(error):
+    """
+    Turn a failed connection into the error value the server expects.
+    """
+    if isinstance(error, TimeoutError):
+        return "timeout"
+    if isinstance(error, ConnectionRefusedError):
+        return "refused"
+    if isinstance(error, socket.gaierror):
+        # The host name could not be looked up
+        return "dns"
+    return "unreachable"
+
+
+def check_service_availability(host, port, timeout=CONNECT_TIMEOUT_S):
     """
     Check whether a service accepts a TCP connection.
 
@@ -11,14 +29,17 @@ def check_service_availability(host, port, timeout=3):
         timeout: Maximum time to wait for a connection.
 
     Returns:
-        True if the connection succeeds, False otherwise.
+        {"up": bool, "response_ms": connect time or None, "error": reason or None}
     """
+
+    start_time = time.perf_counter()
 
     try:
         # Attempt to establish a TCP connection
         with socket.create_connection((host, port), timeout=timeout):
-            return True
+            response_ms = (time.perf_counter() - start_time) * 1000
+            return {"up": True, "response_ms": round(response_ms, 2), "error": None}
 
-    except (socket.timeout, OSError):
+    except OSError as error:
         # Connection failed or the service could not be reached
-        return False
+        return {"up": False, "response_ms": None, "error": classify_connection_error(error)}

@@ -33,25 +33,23 @@ def collect_report(previous_stats, current_stats, interval_s):
     # Check each service listed in config.py
     for service in MONITORED_SERVICES:
 
-        # Check whether the service accepts a TCP connection
-        is_up = check_service_availability(
-            service["host"],
-            service["port"]
-        )
-
-        # Measure HTTP response time if the service has a URL
-        response_ms = None
-
-        if is_up and service.get("url"):
-            response_ms = get_response_time(service["url"])
+        # One check per service: HTTP if it has a URL, otherwise a TCP connection
+        if service.get("url"):
+            result = get_response_time(service["url"])
+        else:
+            result = check_service_availability(
+                service["host"],
+                service["port"]
+            )
 
         # Add this service's results to the list
         services.append({
             "name": service["name"],
             "host": service["host"],
             "port": service["port"],
-            "up": is_up,
-            "response_ms": response_ms
+            "up": result["up"],
+            "response_ms": result["response_ms"],
+            "error": result["error"]
         })
 
     # Assemble the report using the team's JSON structure

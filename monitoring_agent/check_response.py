@@ -2,9 +2,9 @@ from collectors.response import get_response_time
 
 url = "https://www.google.com"
 
-response_time = get_response_time(url)
+result = get_response_time(url)
 
-if response_time is not None:
-    print(f"Response time: {response_time} ms")
+if result["up"]:
+    print(f"Response time: {result['response_ms']} ms")
 else:
-    print("Server did not respond.")
+    print(f"Service is down ({result['error']}), response time: {result['response_ms']} ms")
