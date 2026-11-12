@@ -25,3 +25,6 @@ server/data/
 
 # Test environment logs
 env/logs/
+
+# Demo runner logs
+demo_logs/
