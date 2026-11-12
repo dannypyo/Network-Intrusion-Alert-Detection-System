@@ -47,6 +47,7 @@ All settings are optional environment variables. With none set, the agent report
 | `REPORT_INTERVAL_S` | `10` | Seconds between reports |
 | `SERVICES` | `server=http://127.0.0.1:8000/health` | Comma-separated `name=url` pairs to monitor |
 | `AUTH_LOG_PATH` | `env/logs/auth.log` | Failed-login log written by the target service |
+| `TRAFFIC_INTERFACE` | `all` | Network interfaces to measure: `all`, `loopback`, `external` (all but loopback), or one interface name such as `eth0` |
 
 In `SERVICES`, the URL's scheme picks the check: `http://` or `https://` for an HTTP check, `tcp://` for a TCP connection check (a port is required). For example:
 
