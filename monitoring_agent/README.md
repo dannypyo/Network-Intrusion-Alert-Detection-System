@@ -11,6 +11,7 @@ The agent collects network traffic information, checks service availability, mea
 - **Network Traffic:** Tracks incoming and outgoing bytes and packets.
 - **Response Time:** Measures how long a server takes to respond to an HTTP request.
 - **Service Availability:** Checks whether a service is reachable.
+- **Failed Logins:** Reads new failed login attempts from the target service's log.
 - **JSON Reporting:** Generates reports approximately every 10 seconds.
 - **HTTP Communication:** Sends reports to the central server using HTTP POST.
 - **Reliable Reporting:** Sends each report once; if one fails, the next report replaces it.
@@ -45,6 +46,7 @@ All settings are optional environment variables. With none set, the agent report
 | `AGENT_TOKEN` | `dev-token-not-for-deployment` | Shared secret; must match the server's |
 | `REPORT_INTERVAL_S` | `10` | Seconds between reports |
 | `SERVICES` | `server=http://127.0.0.1:8000/health` | Comma-separated `name=url` pairs to monitor |
+| `AUTH_LOG_PATH` | `env/logs/auth.log` | Failed-login log written by the target service |
 
 In `SERVICES`, the URL's scheme picks the check: `http://` or `https://` for an HTTP check, `tcp://` for a TCP connection check (a port is required). For example:
 
@@ -80,4 +82,4 @@ To test against a target service and trigger alerts, see `env/README.md`.
 
 The monitoring agent has been tested locally and is ready for integration.
 
-The agent reports to the FastAPI server, authenticating with `AGENT_TOKEN`. The remaining step is the failed-login collector.
+The agent reports to the FastAPI server, authenticating with `AGENT_TOKEN`. All collectors are complete.

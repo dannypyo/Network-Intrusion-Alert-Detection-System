@@ -21,7 +21,7 @@ The agent reports every 10 seconds. Leave all three running, then use a fourth t
 
 | Script | What it does | Expected alert |
 | --- | --- | --- |
-| `trigger_failed_logins.py` | 8 wrong passwords from `10.0.0.66`, 0.5 s apart | `BRUTE_FORCE_LOGIN` (more than 5 within 60 s); needs the agent's failed-login collector |
+| `trigger_failed_logins.py` | 8 wrong passwords from `10.0.0.66`, 0.5 s apart | `BRUTE_FORCE_LOGIN` (more than 5 within 60 s) |
 | `trigger_traffic_spike.py` | Parallel large downloads for 30 s | `TRAFFIC_SPIKE` (over 1 MB/s) |
 | `trigger_slow_response.py` | Adds 1500 ms to every response for 30 s | `HIGH_LATENCY` (over 1000 ms) |
 | `trigger_service_down.py` | Refuses connections for 30 s, then recovers | `SERVICE_DOWN` (after 2 failed checks) |
@@ -40,4 +40,3 @@ Run any of them with `--help` to see their options. When using the mock server, 
 | `env/logs/auth.log` | Failed logins written by the target service (not committed) |
 
 The target service accepts one login, `admin` / `password123`. Every other attempt is logged as a failure. The traffic spike measures all of your computer's traffic, so a video call or large download can also cause it.
-

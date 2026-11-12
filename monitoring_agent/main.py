@@ -14,6 +14,7 @@ from collectors.traffic import (
 )
 from collectors.response import get_response_time
 from collectors.availability import check_service_availability
+from collectors.failed_logins import read_new_failed_logins
 
 
 def collect_report(previous_stats, current_stats, interval_s):
@@ -57,7 +58,7 @@ def collect_report(previous_stats, current_stats, interval_s):
         "agent_id": AGENT_ID,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "traffic": traffic,
-        "failed_logins": [],
+        "failed_logins": read_new_failed_logins(),
         "services": services
     }
 

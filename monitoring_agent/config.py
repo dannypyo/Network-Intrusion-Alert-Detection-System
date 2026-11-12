@@ -91,6 +91,11 @@ AGENT_TOKEN = os.environ.get("AGENT_TOKEN", "").strip() or DEV_AGENT_TOKEN
 # How often the agent sends reports (seconds)
 REPORT_INTERVAL = _positive_int("REPORT_INTERVAL_S", 10)
 
+# Log of failed logins written by the target service (env/target_service.py)
+AUTH_LOG_PATH = os.environ.get("AUTH_LOG_PATH", "").strip() or os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "env", "logs", "auth.log"
+)
+
 # Services that the agent monitors. The default watches the server's own health check.
 MONITORED_SERVICES = _parse_services(
     os.environ.get("SERVICES", "").strip() or "server=http://127.0.0.1:8000/health"
