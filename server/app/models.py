@@ -135,3 +135,24 @@ class MetricOut(BaseModel):
     traffic: TrafficOut
     failed_logins: int  # how many, not the attacker-controlled usernames
     services: list[ServiceOut]
+
+
+class TimelineStep(BaseModel):
+    name: str
+    description: str
+    expect: str | None = None  # the alert type this step should raise, if any
+    state: Literal["pending", "running", "detected", "missed", "done"]
+    started_at: str | None = None
+    detected_in_s: float | None = None
+    detail: str | None = None
+
+
+class TimelineOut(BaseModel):
+    """Progress of the attack sequence, written by demo.py and shown on the dashboard."""
+
+    active: bool = False
+    started_at: str | None = None
+    finished_at: str | None = None
+    settings: dict[str, int | float | str] = Field(default_factory=dict)
+    steps: list[TimelineStep] = Field(default_factory=list)
+    unexpected_alerts: list[str] = Field(default_factory=list)  # alerts no step expected

@@ -91,6 +91,11 @@ AGENT_TOKEN = os.environ.get("AGENT_TOKEN", "").strip() or DEV_AGENT_TOKEN
 # How often the agent sends reports (seconds)
 REPORT_INTERVAL = _positive_int("REPORT_INTERVAL_S", 10)
 
+# Which network interfaces count toward traffic: all, loopback, external, or one interface name
+TRAFFIC_INTERFACE = os.environ.get("TRAFFIC_INTERFACE", "").strip() or "all"
+if TRAFFIC_INTERFACE.lower() in ("all", "loopback", "external"):
+    TRAFFIC_INTERFACE = TRAFFIC_INTERFACE.lower()  # keywords in any case; interface names stay exact
+
 # Log of failed logins written by the target service (env/target_service.py)
 AUTH_LOG_PATH = os.environ.get("AUTH_LOG_PATH", "").strip() or os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "env", "logs", "auth.log"
